@@ -13,23 +13,25 @@ import json
 import os
 import logging
 
-# ---------- CONFIG ----------
+# ---------------- CONFIG ----------------
 SECRET_KEY = os.getenv("SECRET_KEY", "change_this_secret")
 ALGORITHM = "HS256"
 DATABASE_URL = os.getenv("DATABASE_URL")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
 
-# ---------- DATABASE ----------
+# ---------------- DATABASE ----------------
 engine = create_engine(
     DATABASE_URL,
     connect_args={"sslmode": "require"}
 )
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
 
-# ---------- LOGGING ----------
+# ---------------- LOGGING ----------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---------- MODELS ----------
+# ---------------- MODELS ----------------
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
@@ -48,7 +50,7 @@ class LedgerRecord(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# ---------- AUTH ----------
+# ---------------- AUTH ----------------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
@@ -78,7 +80,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
-# ---------- SCHEMAS ----------
+# ---------------- SCHEMAS ----------------
 class UserCreate(BaseModel):
     username: str
     password: str
@@ -95,7 +97,7 @@ class EventInput(BaseModel):
     authority: str
     simulation: bool = False
 
-# ---------- POLICY ----------
+# ---------------- POLICY ----------------
 def evaluate_policy(event):
     if event.authority != "AUTHORIZED_ROLE":
         return {
@@ -111,31 +113,29 @@ def evaluate_policy(event):
         "human_reason": "Authority validated"
     }
 
-# ---------- HASH ----------
+# ---------------- HASH ----------------
 def generate_hash(data, previous_hash=""):
     record_string = json.dumps(data, sort_keys=True) + previous_hash
     return hashlib.sha256(record_string.encode()).hexdigest()
 
-# ---------- APP ----------
+# ---------------- APP ----------------
 if ENVIRONMENT == "development":
     app = FastAPI(title="GRGF Pilot Node v0.1")
 else:
-    app = FastAPI(title="GRGF Pilot Node v0.1")
+    app = FastAPI(title="GRGF Pilot Node v0.1", docs_url=None, redoc_url=None)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # we will restrict later when UI is live
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------- HEALTH ----------
 @app.get("/health")
 def health():
     return {"status": "healthy"}
 
-# ---------- USER ----------
 @app.post("/create_user")
 def create_user(user: UserCreate):
     db = SessionLocal()
@@ -164,7 +164,6 @@ def login(data: Login):
     token = create_access_token({"sub": user.username})
     return {"access_token": token}
 
-# ---------- EVENTS ----------
 @app.post("/submit_event")
 def submit_event(event: EventInput, current_user=Depends(get_current_user)):
 
