@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -10,18 +11,24 @@ from datetime import datetime, timedelta
 import hashlib
 import json
 import os
+import logging
 
-# CONFIG
+# ---------- CONFIG ----------
 SECRET_KEY = os.getenv("SECRET_KEY", "change_this_secret")
 ALGORITHM = "HS256"
 DATABASE_URL = os.getenv("DATABASE_URL")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
 
-# DATABASE
+# ---------- DATABASE ----------
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
-# MODELS
+# ---------- LOGGING ----------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ---------- MODELS ----------
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
@@ -40,7 +47,7 @@ class LedgerRecord(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# AUTH
+# ---------- AUTH ----------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
@@ -70,7 +77,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
-# SCHEMAS
+# ---------- SCHEMAS ----------
 class UserCreate(BaseModel):
     username: str
     password: str
@@ -87,7 +94,7 @@ class EventInput(BaseModel):
     authority: str
     simulation: bool = False
 
-# POLICY
+# ---------- POLICY ----------
 def evaluate_policy(event):
     if event.authority != "AUTHORIZED_ROLE":
         return {
@@ -103,17 +110,40 @@ def evaluate_policy(event):
         "human_reason": "Authority validated"
     }
 
-# HASH
+# ---------- HASH ----------
 def generate_hash(data, previous_hash=""):
     record_string = json.dumps(data, sort_keys=True) + previous_hash
     return hashlib.sha256(record_string.encode()).hexdigest()
 
-# APP
-app = FastAPI(title="GRGF Pilot Node v0.1")
+# ---------- APP ----------
+if ENVIRONMENT == "development":
+    app = FastAPI(title="GRGF Pilot Node v0.1")
+else:
+    app = FastAPI(title="GRGF Pilot Node v0.1", docs_url=None, redoc_url=None)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # we will restrict later when UI is live
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------- HEALTH ----------
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
+# ---------- USER ----------
 @app.post("/create_user")
 def create_user(user: UserCreate):
     db = SessionLocal()
+
+    existing = db.query(User).filter(User.username == user.username).first()
+    if existing:
+        db.close()
+        raise HTTPException(status_code=400, detail="User already exists")
+
     hashed_pw = hash_password(user.password)
     db_user = User(username=user.username, hashed_password=hashed_pw, role=user.role)
     db.add(db_user)
@@ -133,8 +163,13 @@ def login(data: Login):
     token = create_access_token({"sub": user.username})
     return {"access_token": token}
 
+# ---------- EVENTS ----------
 @app.post("/submit_event")
 def submit_event(event: EventInput, current_user=Depends(get_current_user)):
+
+    if current_user.role not in ["admin", "operator"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     decision = evaluate_policy(event)
 
     if event.simulation:
@@ -158,10 +193,16 @@ def submit_event(event: EventInput, current_user=Depends(get_current_user)):
     db.commit()
     db.close()
 
+    logger.info(f"Event committed by {current_user.username}")
+
     return {"mode": "committed", "event_hash": event_hash, "decision": decision}
 
 @app.get("/verify/{record_id}")
 def verify_record(record_id: int, current_user=Depends(get_current_user)):
+
+    if current_user.role not in ["admin", "auditor"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     db = SessionLocal()
     record = db.query(LedgerRecord).filter(LedgerRecord.id == record_id).first()
     db.close()
