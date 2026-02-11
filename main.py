@@ -222,3 +222,12 @@ def verify_record(record_id: int, current_user=Depends(get_current_user)):
         "stored_hash": record.event_hash,
         "recalculated_hash": recalculated
     }
+
+@app.get("/reset_users")
+def reset_users():
+    db = SessionLocal()
+    db.execute("DROP TABLE IF EXISTS users CASCADE;")
+    db.commit()
+    db.close()
+    Base.metadata.create_all(bind=engine)
+    return {"status": "users table reset"}
