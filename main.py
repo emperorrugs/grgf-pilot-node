@@ -20,9 +20,10 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
 
 # ---------- DATABASE ----------
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
-Base = declarative_base()
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"sslmode": "require"}
+)
 
 # ---------- LOGGING ----------
 logging.basicConfig(level=logging.INFO)
