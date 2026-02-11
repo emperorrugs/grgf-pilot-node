@@ -119,9 +119,6 @@ def generate_hash(data, previous_hash=""):
     return hashlib.sha256(record_string.encode()).hexdigest()
 
 # ---------------- APP ----------------
-if ENVIRONMENT == "development":
-    app = FastAPI(title="GRGF Pilot Node v0.1")
-else:
     app = FastAPI(title="GRGF Pilot Node v0.1", docs_url=None, redoc_url=None)
 
 app.add_middleware(
