@@ -50,6 +50,21 @@ class LedgerRecord(Base):
 
 Base.metadata.create_all(bind=engine)
 
+# ---------------- APP ----------------
+if ENVIRONMENT == "development":
+    app = FastAPI(title="GRGF Pilot Node v0.1")
+else:
+    app = FastAPI(title="GRGF Pilot Node v0.1")
+
+# ADD CORS AFTER APP IS CREATED
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ---------------- AUTH ----------------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
@@ -97,42 +112,12 @@ class EventInput(BaseModel):
     authority: str
     simulation: bool = False
 
-# ---------------- POLICY ----------------
-def evaluate_policy(event):
-    if event.authority != "AUTHORIZED_ROLE":
-        return {
-            "allow": False,
-            "policy_id": "AUTH001",
-            "machine_reason": "unauthorized_role",
-            "human_reason": "Actor lacks required authority"
-        }
-    return {
-        "allow": True,
-        "policy_id": "AUTH_PASS",
-        "machine_reason": "authorized",
-        "human_reason": "Authority validated"
-    }
-
-# ---------------- HASH ----------------
-def generate_hash(data, previous_hash=""):
-    record_string = json.dumps(data, sort_keys=True) + previous_hash
-    return hashlib.sha256(record_string.encode()).hexdigest()
-
-# ---------------- APP ----------------
-    app = FastAPI(title="GRGF Pilot Node v0.1", docs_url=None, redoc_url=None)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# ---------------- HEALTH ----------------
 @app.get("/health")
 def health():
     return {"status": "healthy"}
 
+# ---------------- USER ----------------
 @app.post("/create_user")
 def create_user(user: UserCreate):
     db = SessionLocal()
@@ -160,6 +145,26 @@ def login(data: Login):
 
     token = create_access_token({"sub": user.username})
     return {"access_token": token}
+
+# ---------------- EVENTS ----------------
+def evaluate_policy(event):
+    if event.authority != "AUTHORIZED_ROLE":
+        return {
+            "allow": False,
+            "policy_id": "AUTH001",
+            "machine_reason": "unauthorized_role",
+            "human_reason": "Actor lacks required authority"
+        }
+    return {
+        "allow": True,
+        "policy_id": "AUTH_PASS",
+        "machine_reason": "authorized",
+        "human_reason": "Authority validated"
+    }
+
+def generate_hash(data, previous_hash=""):
+    record_string = json.dumps(data, sort_keys=True) + previous_hash
+    return hashlib.sha256(record_string.encode()).hexdigest()
 
 @app.post("/submit_event")
 def submit_event(event: EventInput, current_user=Depends(get_current_user)):
