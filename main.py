@@ -119,7 +119,7 @@ def generate_hash(data, previous_hash=""):
 if ENVIRONMENT == "development":
     app = FastAPI(title="GRGF Pilot Node v0.1")
 else:
-    app = FastAPI(title="GRGF Pilot Node v0.1", docs_url=None, redoc_url=None)
+    app = FastAPI(title="GRGF Pilot Node v0.1")
 
 app.add_middleware(
     CORSMiddleware,
